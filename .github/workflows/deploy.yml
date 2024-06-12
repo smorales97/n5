@@ -1,0 +1,51 @@
+
+name: Deploy to AWS ECS
+
+on:
+  push:
+    branches:
+      - develop
+      - testing
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build, tag, and push image to Amazon ECR
+        id: build-image
+        run: |
+          # Define image name and tag based on branch
+          IMAGE_TAG=${GITHUB_REF##*/}
+          if [ "$IMAGE_TAG" == "develop" ]; then
+            ENV_NAME="production"
+          elif [ "$IMAGE_TAG" == "testing" ]; then
+            ENV_NAME="development"
+          else
+            ENV_NAME="unknown"
+          fi
+
+          IMAGE_URI=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${IMAGE_TAG}
+
+          # Build and push Docker image
+          docker build --build-arg ENV_NAME=${ENV_NAME} -t ${IMAGE_URI} .
+          docker push ${IMAGE_URI}
+
+      - name: Deploy to ECS
+        id: deploy-ecs
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: ecs-task-definition.json
+          service: ecs-service-name
+          cluster: ecs-cluster-name
+          wait-for-service-stability: true
